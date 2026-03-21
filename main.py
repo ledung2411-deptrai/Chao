@@ -6,7 +6,7 @@
 ║     BOT TELEGRAM KIẾM TIỀN ONLINE        ║
 ║     © Bản quyền thuộc về Lê Trung Dũng  ║
 ║     Phiên bản: 6.0 — All-in-One          ║
-║     Bot + Webhook chạy cùng 1 file       ║
+║     
 ╚══════════════════════════════════════════╝
 """
 
@@ -14,13 +14,13 @@
 #  CẤU HÌNH
 # ══════════════════════════════════════════
 
-BOT_TOKEN = "8267142566:AAFJOpcVA1Js9VwFjbAwhJHQ35xWS55seRs"
-ADMIN_ID  = 6993504486
+BOT_TOKEN = " 8504510484:AAFp55RNutB0bzATABwiuW5pAKtYgKS5hL0"
+ADMIN_ID  = 8175673206
 ADMIN_IDS = [ADMIN_ID]
 
 # URL Render của bạn — THAY VÀO ĐÂY
 # Ví dụ: "https://chao-6sag.onrender.com"
-WEBHOOK_BASE_URL = "https://chao-6sag.onrender.com"
+WEBHOOK_BASE_URL = " https://chao-6sag.onrender.com"
 
 DB_PATH = "vipbot.db"
 
