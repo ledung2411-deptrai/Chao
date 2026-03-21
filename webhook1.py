@@ -21,8 +21,8 @@ Luồng hoạt động:
 #  CẤU HÌNH — giữ đồng bộ với anhdung.py
 # ══════════════════════════════════════════
 
-BOT_TOKEN      = "8267142566:AAFJOpcVA1Js9VwFjbAwhJHQ35xWS55seRs"
-ADMIN_ID       = 6993504486
+BOT_TOKEN      = "8504510484:AAFp55RNutB0bzATABwiuW5pAKtYgKS5hL0"
+ADMIN_ID       = 8175673206
 WEBHOOK_SECRET = "LeTrungDung_SecretKey_2025"   # chỉ dùng nếu cần xác thực thêm
 DB_PATH        = "vipbot.db"                     # cùng thư mục với anhdung.py
 PORT           = 8080                            # Render tự inject qua biến PORT
