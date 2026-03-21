@@ -1,40 +1,170 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""
-╔══════════════════════════════════════════╗
-║     BOT TELEGRAM KIẾM TIỀN ONLINE        ║
-║     © Bản quyền thuộc về Lê Trung Dũng  ║
-║     Phiên bản: 6.0 — All-in-One          ║
-║     
-╚══════════════════════════════════════════╝
-"""
+import os
+import asyncio
+import sqlite3
+import datetime
+import hashlib
+import secrets
+import threading
+from flask import Flask, request, render_template_string
+from telegram import Update
+from telegram.ext import Application, CommandHandler, ContextTypes
 
-# ══════════════════════════════════════════
-#  CẤU HÌNH
-# ══════════════════════════════════════════
-
-BOT_TOKEN = " 8504510484:AAFp55RNutB0bzATABwiuW5pAKtYgKS5hL0"
-ADMIN_ID  = 8175673206
-ADMIN_IDS = [ADMIN_ID]
-
-# URL Render của bạn — THAY VÀO ĐÂY
-# Ví dụ: "https://chao-6sag.onrender.com"
-WEBHOOK_BASE_URL = " https://chao-6sag.onrender.com"
+# ===== CONFIG =====
+BOT_TOKEN = "8504510484:AAFp55RNutB0bzATABwiuW5pAKtYgKS5hL0"
+ADMIN_ID = 8175673206
+WEBHOOK_BASE_URL = "https://chao-6sag.onrender.com"
 
 DB_PATH = "vipbot.db"
 
-# Vượt Link 1 — link4m.co (400đ | 5 lần/IP)
-VUOTLINK1_REWARD  = 400
-VUOTLINK1_API_KEY = "699f355d4aaa8e53c471d356"
-VUOTLINK1_API_URL = "https://link4m.co/api-shorten/v2"
-VUOTLINK1_LIMIT   = 5
+REWARD = 400
+LIMIT = 5
 
-# Vượt Link 2 — uptolink.one (300đ | 1000 lần/IP)
-VUOTLINK2_REWARD  = 300
-VUOTLINK2_API_KEY = "f7e837884a890d2fb5536785b1dd2208b11afd4e"
-VUOTLINK2_API_URL = "https://uptolink.one/api"
-VUOTLINK2_LIMIT   = 1000
+app = Flask(__name__)
+
+# ===== DB =====
+def get_db():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def init_db():
+    conn = get_db()
+    c = conn.cursor()
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS users(
+        user_id INTEGER PRIMARY KEY,
+        balance INTEGER DEFAULT 0
+    )
+    """)
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS tokens(
+        token TEXT PRIMARY KEY,
+        user_id INTEGER,
+        reward INTEGER,
+        status TEXT,
+        created TEXT
+    )
+    """)
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS limits(
+        ip TEXT PRIMARY KEY,
+        count INTEGER DEFAULT 0
+    )
+    """)
+
+    conn.commit()
+    conn.close()
+
+init_db()
+
+# ===== UI =====
+SUCCESS = """
+<h1>🎉 Thành công</h1>
+<p>+{{ reward }}đ</p>
+<p>Số dư: {{ balance }}đ</p>
+"""
+
+ERROR = """
+<h1>❌ Lỗi</h1>
+<p>Link không hợp lệ</p>
+"""
+
+# ===== HELPER =====
+def create_token(uid):
+    return hashlib.sha256(f"{uid}{secrets.token_hex(8)}".encode()).hexdigest()
+
+def get_ip():
+    return request.headers.get("X-Forwarded-For", request.remote_addr)
+
+# ===== ROUTE =====
+@app.route("/")
+def home():
+    return "BOT RUNNING"
+
+@app.route("/done/<token>")
+def done(token):
+    ip = get_ip()
+
+    conn = get_db()
+    c = conn.cursor()
+
+    c.execute("SELECT * FROM tokens WHERE token=?", (token,))
+    row = c.fetchone()
+
+    if not row:
+        return render_template_string(ERROR)
+
+    if row["status"] == "done":
+        return "Đã dùng"
+
+    created = datetime.datetime.fromisoformat(row["created"])
+    if (datetime.datetime.now() - created).total_seconds() > 600:
+        return "Hết hạn"
+
+    c.execute("SELECT count FROM limits WHERE ip=?", (ip,))
+    r = c.fetchone()
+    count = r["count"] if r else 0
+
+    if count >= LIMIT:
+        return "Giới hạn"
+
+    if r:
+        c.execute("UPDATE limits SET count=count+1 WHERE ip=?", (ip,))
+    else:
+        c.execute("INSERT INTO limits VALUES (?,1)", (ip,))
+
+    c.execute("UPDATE tokens SET status='done' WHERE token=?", (token,))
+    c.execute("INSERT OR IGNORE INTO users VALUES (?,0)", (row["user_id"],))
+    c.execute("UPDATE users SET balance=balance+? WHERE user_id=?", (row["reward"], row["user_id"]))
+
+    conn.commit()
+
+    c.execute("SELECT balance FROM users WHERE user_id=?", (row["user_id"],))
+    balance = c.fetchone()["balance"]
+
+    conn.close()
+
+    return render_template_string(SUCCESS, reward=row["reward"], balance=balance)
+
+# ===== TELEGRAM =====
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Bot chạy ngon 😎")
+
+async def link(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+
+    token = create_token(user.id)
+    url = f"{WEBHOOK_BASE_URL}/done/{token}"
+
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("INSERT INTO tokens VALUES (?,?,?,?,?)",
+              (token, user.id, REWARD, "pending", datetime.datetime.now().isoformat()))
+    conn.commit()
+    conn.close()
+
+    await update.message.reply_text(f"Link của bạn:\n{url}")
+
+def run_bot():
+    async def main():
+        bot = Application.builder().token(BOT_TOKEN).build()
+        bot.add_handler(CommandHandler("start", start))
+        bot.add_handler(CommandHandler("link", link))
+        await bot.run_polling()
+
+    asyncio.run(main())
+
+# ===== RUN =====
+if __name__ == "__main__":
+    threading.Thread(target=run_bot, daemon=True).start()
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)VUOTLINK2_LIMIT   = 1000
 
 # ══════════════════════════════════════════
 #  IMPORT
