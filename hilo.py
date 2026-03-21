@@ -22,12 +22,12 @@ Luồng vượt link:
 #  CẤU HÌNH
 # ══════════════════════════════════════════
 
-TOKEN     = "8267142566:AAFJOpcVA1Js9VwFjbAwhJHQ35xWS55seRs"
-ADMIN_ID  = 6993504486
+TOKEN     = "8504510484:AAFp55RNutB0bzATABwiuW5pAKtYgKS5hL0"
+ADMIN_ID  = 8175673206
 ADMIN_IDS = [ADMIN_ID]
 
 # URL ngrok (trang đích sau khi vượt link xong)
-WEBHOOK_BASE_URL = "https://hilario-sweetless-regina.ngrok-free.dev"
+WEBHOOK_BASE_URL = "https://chao-6sag.onrender.com"
 
 # --- Vượt Link 1 — link4m.co (400đ | tối đa 5 lần/IP) ---
 VUOTLINK1_REWARD  = 400
