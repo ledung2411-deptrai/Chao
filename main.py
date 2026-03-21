@@ -8,32 +8,217 @@ import datetime
 import hashlib
 import secrets
 import threading
-from flask import Flask, request, render_template_string
+from flask import Flask, request
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
-# ===== CONFIG =====
-BOT_TOKEN = "8504510484:AAFp55RNutB0bzATABwiuW5pAKtYgKS5hL0"
-ADMIN_ID = 8175673206
-WEBHOOK_BASE_URL = "https://chao-6sag.onrender.com"
+# ── Cấu hình ────────────────────────────────────────────────────────────────
+BOT_TOKEN = os.getenv(" 8504510484:AAFp55RNutB0bzATABwiuW5pAKtYgKS5hL0")
+ADMIN_ID  = int(os.getenv("8175673206", "0"))
+ADMIN_IDS = [ADMIN_ID]
 
+WEBHOOK_BASE_URL = os.getenv("WEBHOOK_BASE_URL", "https://chao-6sag.onrender.com")
 DB_PATH = "vipbot.db"
 
-REWARD = 400
-LIMIT = 5
+VUOTLINK1_REWARD = 400
+VUOTLINK1_LIMIT  = 5
+VUOTLINK2_REWARD = 300
+VUOTLINK2_LIMIT  = 1000
 
-app = Flask(__name__)
+flask_app = Flask(__name__)
+db_lock = threading.Lock()
 
-# ===== DB =====
-def get_db():
-    conn = sqlite3.connect(DB_PATH)
+# ── Database ─────────────────────────────────────────────────────────────────
+def get_conn():
+    # FIX 2: thêm check_same_thread=False để SQLite hoạt động an toàn đa luồng
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
 
 def init_db():
-    conn = get_db()
-    c = conn.cursor()
+    with db_lock:
+        conn = get_conn()
+        c = conn.cursor()
 
+        c.execute("""CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY,
+            username TEXT,
+            balance INTEGER DEFAULT 0,
+            points INTEGER DEFAULT 0,
+            last_daily TEXT DEFAULT ''
+        )""")
+
+        c.execute("""CREATE TABLE IF NOT EXISTS vuotlink_tokens (
+            token TEXT PRIMARY KEY,
+            user_id INTEGER,
+            link_type TEXT,
+            reward INTEGER,
+            status TEXT DEFAULT 'pending',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )""")
+
+        c.execute("""CREATE TABLE IF NOT EXISTS device_limits (
+            ip TEXT,
+            link_type TEXT,
+            count INTEGER DEFAULT 0,
+            PRIMARY KEY(ip, link_type)
+        )""")
+
+        conn.commit()
+        conn.close()
+
+init_db()
+
+def add_user(user_id, username=""):
+    with db_lock:
+        conn = get_conn()
+        c = conn.cursor()
+        c.execute("INSERT OR IGNORE INTO users (user_id, username) VALUES (?,?)", (user_id, username))
+        conn.commit()
+        conn.close()
+
+def make_token(user_id, link_type):
+    raw = f"{user_id}:{link_type}:{secrets.token_hex(16)}"
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+def get_real_ip():
+    ip = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+    return ip or request.remote_addr or "unknown"
+
+# ── Flask routes ──────────────────────────────────────────────────────────────
+@flask_app.route("/")
+def index():
+    return {"status": "running"}
+
+@flask_app.route("/done/<token>")
+def done(token):
+    ip = get_real_ip()
+
+    # FIX 3 & 4: dùng một conn/cursor duy nhất cho toàn bộ hàm,
+    # đảm bảo conn luôn được đóng dù return ở bất kỳ đâu
+    with db_lock:
+        conn = get_conn()
+        try:
+            c = conn.cursor()
+
+            c.execute("SELECT * FROM vuotlink_tokens WHERE token=?", (token,))
+            row = c.fetchone()
+
+            if not row:
+                return "Invalid token", 404
+
+            if row["status"] == "approved":
+                return "Already used"
+
+            created_at = datetime.datetime.fromisoformat(row["created_at"])
+            # FIX 5: dùng total_seconds() thay vì .seconds
+            # .seconds chỉ trả về phần giây (0-59), không phải tổng giây
+            if (datetime.datetime.now() - created_at).total_seconds() > 600:
+                return "Expired"
+
+            link_type = row["link_type"]
+            limit = VUOTLINK1_LIMIT if link_type == "vuotlink1" else VUOTLINK2_LIMIT
+
+            c.execute("SELECT count FROM device_limits WHERE ip=? AND link_type=?", (ip, link_type))
+            r = c.fetchone()
+            count = r["count"] if r else 0
+
+            if count >= limit:
+                return "Limit reached"
+
+            if r:
+                c.execute(
+                    "UPDATE device_limits SET count=count+1 WHERE ip=? AND link_type=?",
+                    (ip, link_type)
+                )
+            else:
+                c.execute(
+                    "INSERT INTO device_limits (ip,link_type,count) VALUES(?,?,1)",
+                    (ip, link_type)
+                )
+
+            c.execute("UPDATE vuotlink_tokens SET status='approved' WHERE token=?", (token,))
+            c.execute("INSERT OR IGNORE INTO users (user_id) VALUES(?)", (row["user_id"],))
+            c.execute(
+                "UPDATE users SET balance=balance+? WHERE user_id=?",
+                (row["reward"], row["user_id"])
+            )
+            conn.commit()
+        finally:
+            conn.close()   # FIX 3: luôn đóng conn dù có exception hay return sớm
+
+    return "OK"
+
+# ── Telegram handlers ─────────────────────────────────────────────────────────
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    add_user(user.id, user.username)
+    await update.message.reply_text("Bot đã hoạt động!")
+
+async def vuotlink(update: Update, context: ContextTypes.DEFAULT_TYPE, link_type, reward):
+    user = update.effective_user
+    add_user(user.id, user.username)
+
+    token = make_token(user.id, link_type)
+    destination = f"{WEBHOOK_BASE_URL}/done/{token}"
+
+    with db_lock:
+        conn = get_conn()
+        c = conn.cursor()
+        c.execute(
+            "INSERT INTO vuotlink_tokens (token,user_id,link_type,reward) VALUES(?,?,?,?)",
+            (token, user.id, link_type, reward)
+        )
+        conn.commit()
+        conn.close()
+
+    await update.message.reply_text(f"Link của bạn: {destination}")
+
+async def vuotlink1(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await vuotlink(update, context, "vuotlink1", VUOTLINK1_REWARD)
+
+async def vuotlink2(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await vuotlink(update, context, "vuotlink2", VUOTLINK2_REWARD)
+
+# ── Bot runner ────────────────────────────────────────────────────────────────
+def run_bot():
+    # FIX 6: PTB v20 không cho phép run_polling() bên trong asyncio.run() ở thread phụ
+    # vì nó cố đăng ký signal handler (chỉ hoạt động ở main thread).
+    # Giải pháp: tạo event loop riêng và điều khiển vòng đời bot thủ công.
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    async def _run():
+        app = Application.builder().token(BOT_TOKEN).build()
+        app.add_handler(CommandHandler("start", start))
+        app.add_handler(CommandHandler("vuotlink1", vuotlink1))
+        app.add_handler(CommandHandler("vuotlink2", vuotlink2))
+
+        await app.initialize()
+        await app.start()
+        await app.updater.start_polling(drop_pending_updates=True)
+
+        # Giữ bot chạy mãi (cho đến khi process bị kill)
+        await asyncio.Event().wait()
+
+    try:
+        loop.run_until_complete(_run())
+    finally:
+        loop.close()
+
+# ── Entrypoint ────────────────────────────────────────────────────────────────
+if __name__ == "__main__":
+    # FIX 7: kiểm tra BOT_TOKEN trước khi khởi động để tránh lỗi tối nghĩa
+    if not BOT_TOKEN:
+        raise RuntimeError("Biến môi trường BOT_TOKEN chưa được đặt!")
+
+    bot_thread = threading.Thread(target=run_bot, daemon=True)
+    bot_thread.start()
+
+    port = int(os.environ.get("PORT", 5000))
+    # use_reloader=False bắt buộc khi chạy cùng thread phụ,
+    # tránh Flask spawn process thứ 2 làm bot chạy đôi
+    flask_app.run(host="0.0.0.0", port=port, use_reloader=False)
     c.execute("""
     CREATE TABLE IF NOT EXISTS users(
         user_id INTEGER PRIMARY KEY,
