@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body {
+      width: 220px;
+      padding: 15px;
+      background: #0f0f12;
+      color: #fff;
+      font-family: 'Segoe UI', sans-serif;
+      text-align: center;
+    }
+    .header { font-size: 16px; font-weight: bold; margin-bottom: 15px; color: #a955ff; text-shadow: 0 0 10px #a955ff; }
+    .status-box {
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 12px;
+      padding: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      margin-bottom: 15px;
+    }
+    #status-text { font-size: 24px; font-weight: 800; display: block; margin-bottom: 5px; }
+    .on { color: #00ff88; text-shadow: 0 0 15px #00ff88; }
+    .off { color: #ff3366; text-shadow: 0 0 15px #ff3366; }
+    
+    button {
+      width: 100%;
+      padding: 12px;
+      border: none;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #a955ff 0%, #7000ff 100%);
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
+      transition: 0.3s;
+      box-shadow: 0 4px 15px rgba(112, 0, 255, 0.3);
+    }
+    button:hover { transform: scale(1.05); filter: brightness(1.2); }
+    button:active { transform: scale(0.95); }
+  </style>
+</head>
+<body>
+  <div class="header">HADES TURBO PRO</div>
+  <div class="status-box">
+    <span id="status-text" class="on">ON</span>
+    <small style="opacity: 0.5;">Hệ thống đang chạy</small>
+  </div>
+  <button id="toggleBtn">BẬT / TẮT</button>
+  <script src="popup.js"></script>
+</body>
+</html>
