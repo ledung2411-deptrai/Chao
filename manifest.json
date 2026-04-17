@@ -1,20 +1,17 @@
 {
   "manifest_version": 3,
-  "name": "Automation & Time Master",
+  "name": "Hades Turbo Pro",
   "version": "1.0",
-  "permissions": ["scripting", "activeTab"],
-  "host_permissions": ["<all_urls>"],
+  "description": "Giao diện hiện đại cho Hades Bypass",
+  "permissions": ["storage", "scripting", "activeTab"],
+  "action": {
+    "default_popup": "popup.html"
+  },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
       "js": ["content.js"],
       "run_at": "document_start"
-    }
-  ],
-  "web_accessible_resources": [
-    {
-      "resources": ["inject.js"],
-      "matches": ["<all_urls>"]
     }
   ]
 }
